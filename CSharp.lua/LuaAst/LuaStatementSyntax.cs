@@ -24,6 +24,7 @@ using System.Threading.Tasks;
 namespace CSharpLua.LuaAst {
   public abstract class LuaStatementSyntax : LuaSyntaxNode {
     public Semicolon SemicolonToken => Tokens.Semicolon;
+    public bool ForceSemicolon { get; set; }
 
     private sealed class EmptyLuaStatementSyntax : LuaStatementSyntax {
       internal override void Render(LuaRenderer renderer) {
@@ -35,7 +36,6 @@ namespace CSharpLua.LuaAst {
     }
 
     public static readonly LuaStatementSyntax Empty = new EmptyLuaStatementSyntax();
-    public static readonly LuaStatementSyntax Colon = (LuaIdentifierNameSyntax)Semicolon.kSemicolon;
   }
 
   public sealed class LuaExpressionStatementSyntax : LuaStatementSyntax {
@@ -47,6 +47,10 @@ namespace CSharpLua.LuaAst {
 
     internal override void Render(LuaRenderer renderer) {
       renderer.Render(this);
+    }
+
+    public static implicit operator LuaExpressionStatementSyntax(LuaExpressionSyntax expression) {
+      return new LuaExpressionStatementSyntax(expression);
     }
   }
 
@@ -100,7 +104,7 @@ namespace CSharpLua.LuaAst {
     public LuaStatementSyntax Statement { get; }
 
     public LuaContinueAdapterStatementSyntax(bool isWithinTry) {
-      Assignment = new LuaExpressionStatementSyntax(new LuaAssignmentExpressionSyntax(LuaIdentifierNameSyntax.Continue, LuaIdentifierNameSyntax.True));
+      Assignment = LuaIdentifierNameSyntax.Continue.Assignment(LuaIdentifierNameSyntax.True);
       if (isWithinTry) {
         Statement = new LuaReturnStatementSyntax();
       } else {
@@ -182,9 +186,7 @@ namespace CSharpLua.LuaAst {
       if (identifier == null) {
         throw new ArgumentNullException(nameof(identifier));
       }
-
-      LuaAssignmentExpressionSyntax assignment = new LuaAssignmentExpressionSyntax(identifier, LuaIdentifierNameSyntax.True);
-      Assignment = new LuaExpressionStatementSyntax(assignment);
+      Assignment = identifier.Assignment(LuaIdentifierNameSyntax.True);
       GotoStatement = new LuaGotoStatement(identifier);
     }
 
@@ -219,6 +221,7 @@ namespace CSharpLua.LuaAst {
       NoField = 1 << 1,
       Metadata = 1 << 2,
       MetadataAll = 1 << 3,
+      Template = 1 << 4,
     }
 
     public readonly List<LuaStatementSyntax> Statements = new List<LuaStatementSyntax>();
@@ -243,7 +246,7 @@ namespace CSharpLua.LuaAst {
           AddLineText(items, curIndex, beginIndex);
           int endIndex = items.FindIndex(beginIndex + 1, it => it == Tokens.CloseSummary);
           if (endIndex != -1) {
-            LuaSummaryDocumentStatement summary = new LuaSummaryDocumentStatement();
+            var summary = new LuaSummaryDocumentStatement();
             bool hasAttr = false;
             for (int i = beginIndex + 1; i < endIndex; ++i) {
               string text = items[i];
@@ -280,11 +283,14 @@ namespace CSharpLua.LuaAst {
       attr = AttributeFlags.None;
       int index = text.IndexOf(kAttributePrefix);
       if (index != -1) {
-        string s = text.Substring(index + kAttributePrefix.Length);
-        if(Enum.TryParse(s, out attr)) {
+        string prefix = text.Substring(index + kAttributePrefix.Length);
+        if (Enum.TryParse(prefix, out attr)) {
+          return true;
+        } else if (prefix.Contains(AttributeFlags.Template.ToString())) {
+          attr = AttributeFlags.Template;
           return true;
         } else {
-          throw new CompilationErrorException($"{s} is not define attribute");
+          throw new CompilationErrorException($"{prefix} is not define attribute");
         }
       }
       return false;

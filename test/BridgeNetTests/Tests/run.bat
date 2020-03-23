@@ -1,12 +1,57 @@
-rem set version=LuaJIT-2.1.0-beta3
 set version=Lua5.3
 set lua=../../__bin/%version%/lua
-"%lua%" run.lua
-
+call compile-all
 if not %errorlevel%==0 (
-  echo please see log, has some error.
-  goto :Fail 
+  goto:Fail 
+)
+"%lua%" run.lua
+if not %errorlevel%==0 (
+  goto:Fail 
+)
+
+echo **********************************************
+echo ***********  test with jit         ***********
+echo **********************************************
+
+set version=LuaJIT-2.0.2
+call compile-all
+if not %errorlevel%==0 (
+  goto:Fail 
+)
+"%lua%" run.lua
+if not %errorlevel%==0 (
+  goto:Fail 
+)
+
+echo **********************************************
+echo ********  test no debug object  *********
+echo **********************************************
+set version=Lua5.3
+set extra=-p
+call compile-all
+if not %errorlevel%==0 (
+  goto:Fail 
+)
+"%lua%" run.lua nodebug
+if not %errorlevel%==0 (
+  goto:Fail 
+)
+
+echo **********************************************
+echo **  test with jit and  no debug object      **
+echo **********************************************
+set version=LuaJIT-2.0.2
+call compile-all
+if not %errorlevel%==0 (
+  goto:Fail 
+)
+"%lua%" run.lua nodebug
+if not %errorlevel%==0 (
+  goto:Fail 
 )
 
 :Fail
-pause
+if not %errorlevel%==0 (
+  pause
+  exit -1
+)

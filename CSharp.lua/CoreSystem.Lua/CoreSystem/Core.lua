@@ -34,7 +34,9 @@ local tostring = tostring
 local string = string
 local sfind = string.find
 local ssub = string.sub
+local debug = debug
 local global = _G
+local prevSystem = rawget(global, "System")
 
 local emptyFn = function() end
 local nilFn = function() return nil end
@@ -46,10 +48,7 @@ local zeroFn = function() return 0 end
 local oneFn = function() return 1 end
 local equals = function(x, y) return x == y end
 local getCurrent = function(t) return t.current end
-local modules = {}
-local usings = {}
-local classes = {}
-local metadatas
+local assembly, metadatas
 local System, Object, ValueType
 
 local function new(cls, ...)
@@ -68,10 +67,10 @@ local function xpcallErr(e)
     e = System.Exception("script error")
     e:traceback()
   elseif type(e) == "string" then
-    if e:find("attempt to index") then
-      e = System.NullReferenceException()
-    elseif e:find("attempt to divide by zero") then  
-      e = System.DivideByZeroException()
+    if sfind(e, "attempt to index") then
+      e = System.NullReferenceException(e)
+    elseif sfind(e, "attempt to divide by zero") then  
+      e = System.DivideByZeroException(e)
     else
       e = System.Exception(e)
     end
@@ -186,12 +185,12 @@ interfaceMetatable.__index = interfaceMetatable
 local ctorMetatable = { __call = function (ctor, ...) return ctor[1](...) end }
 
 local function applyExtends(cls)
-  local extends = cls.__inherits__
+  local extends = cls.base
   if extends then
     if type(extends) == "function" then
       extends = extends(global, cls)
     end
-    cls.__inherits__ = nil
+    cls.base = nil
   end
   return extends
 end
@@ -210,9 +209,6 @@ local function applyMetadata(cls)
 end
 
 local function setBase(cls, kind)
-  cls.__index = cls 
-  cls.__call = new
-
   local ctor = cls.__ctor__
   if ctor and type(ctor) == "table" then
     setmetatable(ctor, ctorMetatable)
@@ -220,13 +216,16 @@ local function setBase(cls, kind)
   local extends = applyExtends(cls)
   applyMetadata(cls)
 
+  cls.__index = cls 
+  cls.__call = new
+  
   if kind == "S" then
     if extends then
       cls.interface = extends
     end
     setmetatable(cls, ValueType)
   else
-    if extends then      
+    if extends then
       local base = extends[1]
       if not base then error(cls.__name__ .. "'s base is nil") end
       if base.class == "I" then
@@ -281,7 +280,7 @@ local function setHasStaticCtor(cls, kind)
   for k, v in pairs(cls) do
     t[k] = v
     cls[k] = nil
-  end  
+  end
   cls[cls] = t
   cls.__name__ = name
   cls.class = kind
@@ -293,6 +292,7 @@ end
 local function defCore(name, kind, cls, generic)
   cls = cls or {}
   cls.__name__ = name
+  cls.__assembly__ = assembly
   if not generic then
     set(name, cls)
   end
@@ -347,7 +347,7 @@ local function def(name, kind, cls, generic)
 end
 
 local function defCls(name, cls, generic)
-  return def(name, "C", cls, generic) 
+  return def(name, "C", cls, generic)
 end
 
 local function defInf(name, cls)
@@ -403,7 +403,7 @@ local function defArray(name, cls, Array, MultiArray)
   }))
 end
 
-local function trunc(num) 
+local function trunc(num)
   return num > 0 and floor(num) or ceil(num)
 end
 
@@ -434,10 +434,15 @@ System = {
   defArray = defArray,
   enumMetatable = enumMetatable,
   trunc = trunc,
-  global = global,
-  classes = classes
+  global = global
 }
+if prevSystem then
+  setmetatable(System, { __index = prevSystem })
+end
 global.System = System
+
+local debugsetmetatable = debug and debug.setmetatable
+System.debugsetmetatable = debugsetmetatable
 
 local _, _, version = sfind(_VERSION, "^Lua (.*)$")
 version = tonumber(version)
@@ -467,64 +472,22 @@ if version < 5.3 then
   System.xor = xor
   System.sl = sl
   System.sr = sr
-  
-  function System.bnotOfNull(x)
-    if x == nil then
-      return nil
-    end
-    return bnot(x)
-  end
-
-  function System.bandOfNull(x, y)
-    if x == nil or y == nil then
-      return nil
-    end
-    return band(x, y)
-  end
-
-  function System.borOfNull(x, y)
-    if x == nil or y == nil then
-      return nil
-    end
-    return bor(x, y)
-  end
-
-  function System.xorOfNull(x, y)
-    if x == nil or y == nil then
-      return nil
-    end
-    return xor(x, y)
-  end
-
-  function System.slOfNull(x, y)
-    if x == nil or y == nil then
-      return nil
-    end
-    return sl(x, y)
-  end
-
-  function System.srOfNull(x, y)
-    if x == nil or y == nil then
-      return nil
-    end
-    return sr(x, y)
-  end
 
   function System.div(x, y) 
     if y == 0 then throw(System.DivideByZeroException(), 1) end
     return trunc(x / y)
   end
 
-  function System.divOfNull(x, y)
-    if x == nil or y == nil then
-      return nil
+  function System.mod(x, y)
+    if y == 0 then throw(System.DivideByZeroException(), 1) end
+    local v = x % y
+    if v ~= 0 and x * y < 0 then
+      return v - y
     end
-    if y == 0 then throw(System.DivideByZeroException(), 1) end
-    return trunc(x / y)
+    return v
   end
-
-  function System.mod(x, y) 
-    if y == 0 then throw(System.DivideByZeroException(), 1) end
+  
+  function System.modf(x, y)
     local v = x % y
     if v ~= 0 and x * y < 0 then
       return v - y
@@ -722,7 +685,7 @@ else
   function System.sl(x, y) return x << y end
   function System.sr(x, y) return x >> y end
   function System.div(x, y) if x ~ y < 0 then return -(-x // y) end return x // y end
-  
+
   function System.mod(x, y)
     local v = x % y
     if v ~= 0 and 1.0 * x * y < 0 then
@@ -730,7 +693,7 @@ else
     end
     return v
   end
-  
+
   local function toUInt (v, max, mask, checked)  
     if v >= 0 and v <= max then
       return v
@@ -918,27 +881,6 @@ function System.ToSingle(v, checked)
   end
 end
 
-function System.orOfNull(x, y)
-  if x == nil or y == nil then
-    return nil
-  end
-  return x or y
-end
-
-function System.andOfNull(x, y)
-  if x == nil or y == nil then
-    return nil
-  end
-  return x and y
-end
-
-function System.xorOfBoolNull(x, y)
-  if x == nil or y == nil then
-    return nil
-  end
-  return x ~= y
-end
-
 function System.using(t, f)
   local dispose = t and t.Dispose
   if dispose ~= nil then
@@ -980,23 +922,13 @@ function System.default(T)
 end
 
 function System.property(name)
-  local function get(this)
+  local function g(this)
     return this[name]
   end
-  local function set(this, v)
+  local function s(this, v)
     this[name] = v
   end
-  return get, set
-end
-
-function System.event(name)
-  local function add(this, v)
-    this[name] = this[name] + v
-  end
-  local function remove(this, v)
-    this[name] = this[name] - v
-  end
-  return add, remove
+  return g, s
 end
 
 function System.new(cls, index, ...)
@@ -1008,37 +940,151 @@ function System.base(this)
   return getmetatable(getmetatable(this))
 end
 
-local function equalsObj(x, y)
-  if x == y then
-    return true
-  end
-  if x == nil or y == nil then
+local equalsObj, compareObj
+if debugsetmetatable then
+  equalsObj = function (x, y)
+    if x == y then
+      return true
+    end
+    if x == nil or y == nil then
+      return false
+    end
+    local ix = x.EqualsObj
+    if ix ~= nil then
+      return ix(x, y)
+    end
+    local iy = y.EqualsObj
+    if iy ~= nil then
+      return iy(y, x)
+    end
     return false
   end
-  local ix = x.EqualsObj
-  if ix ~= nil then
-    return ix(x, y)
-  end
-  local iy = y.EqualsObj
-  if iy ~= nil then
-    return iy(y, x)
-  end
-  return false
-end
 
-local function compareObj(a, b)
-  if a == b then return 0 end
-  if a == nil then return -1 end
-  if b == nil then return 1 end
-  local ia = a.CompareToObj
-  if ia ~= nil then
-    return ia(a, b)
+  compareObj = function (a, b)
+    if a == b then return 0 end
+    if a == nil then return -1 end
+    if b == nil then return 1 end
+    local ia = a.CompareToObj
+    if ia ~= nil then
+      return ia(a, b)
+    end
+    local ib = b.CompareToObj
+    if ib ~= nil then
+      return -ib(b, a)
+    end
+    throw(System.ArgumentException("Argument_ImplementIComparable"))
   end
-  local ib = b.CompareToObj
-  if ib ~= nil then
-    return -ib(b, a)
+
+  function System.toString(t)
+    return t ~= nil and t:ToString() or ""
   end
-  throw(System.ArgumentException("Argument_ImplementIComparable"))
+
+  debugsetmetatable(nil, {
+    __concat = function(a, b)
+      if a == nil then
+        if b == nil then
+          return ""
+        else
+          return b
+        end
+      else
+        return a
+      end
+    end,
+    __add = function (a, b)
+      if a == nil then
+        if b == nil or type(b) == "number" then
+          return nil
+        end
+        return b
+      end
+      return nil
+    end,
+    __sub = nilFn,
+    __mul = nilFn,
+    __div = nilFn,
+    __mod = nilFn,
+    __unm = nilFn,
+    __lt = falseFn,
+    __le = falseFn,
+
+    -- lua 5.3
+    __idiv = nilFn,
+    __band = nilFn,
+    __bor = nilFn,
+    __bxor = nilFn,
+    __bnot = nilFn,
+    __shl = nilFn,
+    __shr = nilFn,
+  })
+else
+  equalsObj = function (x, y)
+    if x == y then
+      return true
+    end
+    if x == nil or y == nil then
+      return false
+    end
+    local t = type(x)
+    if t == "table" then
+      local ix = x.EqualsObj
+      if ix ~= nil then
+        return ix(x, y)
+      end
+    elseif t == "number" then
+      return System.Number.EqualsObj(x, y)
+    end
+    t = type(y)
+    if t == "table" then
+      local iy = y.EqualsObj
+      if iy ~= nil then
+        return iy(y, x)
+      end
+    end
+    return false
+  end
+
+  compareObj = function (a, b)
+    if a == b then return 0 end
+    if a == nil then return -1 end
+    if b == nil then return 1 end
+    local t = type(a)
+    if t == "number" then
+      return System.Number.CompareToObj(a, b)
+    elseif t == "boolean" then
+      return System.Boolean.CompareToObj(a, b)
+    else
+      local ia = a.CompareToObj
+      if ia ~= nil then
+        return ia(a, b)
+      end
+    end
+    t = type(b)
+    if t == "number" then
+      return -System.Number.CompareToObj(b, a)
+    elseif t == "boolean" then
+      return -System.Boolean.CompareToObj(a, b)
+    else
+      local ib = b.CompareToObj
+      if ib ~= nil then
+        return -ib(b, a)
+      end
+    end
+    throw(System.ArgumentException("Argument_ImplementIComparable"))
+  end
+
+  function System.toString(obj)
+    if obj == nil then return "" end
+    local t = type(obj) 
+    if t == "table" then
+      return obj:ToString()
+    elseif t == "boolean" then
+      return obj and "True" or "False"
+    elseif t == "function" then
+      return "System.Delegate"
+    end
+    return tostring(obj)
+  end
 end
 
 System.equalsObj = equalsObj
@@ -1058,7 +1104,7 @@ Object = defCls("System.Object", {
 })
 setmetatable(Object, { __call = new })
 
-ValueType = {
+ValueType = defCls("System.ValueType", {
   class = "S",
   default = function(T) 
     return T()
@@ -1104,15 +1150,27 @@ ValueType = {
   GetHashCode = function (this)
     throw(System.NotSupportedException(this.__name__ .. " User-defined struct not support GetHashCode"), 1)
   end
-}
+})
 
-defCls("System.ValueType", ValueType)
+local AnonymousType
+AnonymousType = defCls("System.AnonymousType", {
+  EqualsObj = function (this, obj)
+    if getmetatable(obj) ~= AnonymousType then return false end
+    for k, v in pairs(this) do
+      if not equalsObj(v, obj[k]) then
+        return false
+      end
+    end
+    return true
+  end
+})
 
-local AnonymousType = defCls("System.AnonymousType", {})
-
-function System.anonymousType(t)
-  return setmetatable(t, AnonymousType)
+local function anonymousTypeCreate(T, t)
+  return setmetatable(t, T)
 end
+
+local anonymousTypeMetaTable = setmetatable({ __index = Object, __call = anonymousTypeCreate }, Object)
+setmetatable(AnonymousType, anonymousTypeMetaTable)
 
 local pack, unpack = table.pack, table.unpack
 
@@ -1187,7 +1245,11 @@ local function tupleGetRest(t)
   return t[8]
 end
 
-local Tuple = { 
+local function tupleCreate(T, ...)
+  return setmetatable(pack(...), T)
+end
+
+local Tuple = defCls("System.Tuple", {
   Deconstruct = tupleDeconstruct,
   ToString = tupleToString,
   EqualsObj = tupleEqualsObj,
@@ -1195,13 +1257,9 @@ local Tuple = {
   getLength = tupleLength,
   get = tupleGet,
   getRest = tupleGetRest
-}
-
-defCls("System.Tuple", Tuple)
-
-function System.tuple(...)
-  return setmetatable(pack(...), Tuple)
-end
+})
+local tupleMetaTable = setmetatable({ __index  = Object, __call = tupleCreate }, Object)
+setmetatable(Tuple, tupleMetaTable)
 
 local ValueTuple = defStc("System.ValueTuple", {
   Deconstruct = tupleDeconstruct,
@@ -1217,12 +1275,10 @@ local ValueTuple = defStc("System.ValueTuple", {
     throw(System.NotSupportedException("not support default(T) when T is ValueTuple"))
   end
 })
+local valueTupleMetaTable = setmetatable({ __index  = ValueType, __call = tupleCreate }, ValueType)
+setmetatable(ValueTuple, valueTupleMetaTable)
 
-function System.valueTuple(...)
-  return setmetatable(pack(...), ValueTuple)
-end
-
-defCls("System.Attribute", {})
+defCls("System.Attribute")
 
 local Nullable = { 
   default = nilFn,
@@ -1237,10 +1293,16 @@ local Nullable = {
     if this == nil then
       return 0
     end
-    return this:GetHashCode()
+    if type(this) == "table" then
+      return this:GetHashCode()
+    end
+    return this
   end,
   clone = function (t)
-    return t and t:__clone__()
+    if type(t) == "table" then
+      return t:__clone__()
+    end
+    return t
   end
 }
 
@@ -1254,48 +1316,36 @@ function System.isNullable(T)
   return getmetatable(T) == Nullable
 end
 
-debug.setmetatable(nil, {
-  __concat = function(a, b)
-    if a == nil then
-      if b == nil then
-        return ""
-      else
-        return b
-      end
-    else
-      return a
-    end
+local Index = defStc("System.Index", {
+  End = -0.0,
+  Start = 0,
+  IsFromEnd = function (this)
+    return 1 / this < 0 
   end,
-  __add = function (a, b)
-    if a == nil then
-      if b == nil or type(b) == "number" then
-        return nil
-      end
-      return b
+  GetOffset = function (this, length)
+    if 1 / this < 0 then
+      return length + this
     end
-    return nil
+    return this
   end,
-  __sub = nilFn,
-  __mul = nilFn,
-  __div = nilFn,
-  __mod = nilFn,
-  __unm = nilFn,
-  __lt = falseFn,
-  __le = falseFn,
-
-  -- lua 5.3
-  __idiv = nilFn,
-  __band = nilFn,
-  __bor = nilFn,
-  __bxor = nilFn,
-  __bnot = nilFn,
-  __shl = nilFn,
-  __shr = nilFn,
+  ToString = function (this)
+    return ((1 / this < 0) and '^' or '') .. this
+  end
 })
-
-function System.toString(t)
-  return t ~= nil and t:ToString() or ""
-end
+setmetatable(Index, { 
+  __call = function (value, fromEnd)
+    if value < 0 then
+      throw(System.ArgumentOutOfRangeException("Non-negative number required."))
+    end
+    if fromEnd then
+      if value == 0 then
+        return -0.0
+      end
+      return -value
+    end
+    return value
+  end
+})
 
 local function pointerAddress(p)
   local address = p[3]
@@ -1340,12 +1390,12 @@ function System.stackalloc(t)
   return newPointer(t, 1)
 end
 
+local modules, imports = {}, {}
 function System.import(f)
-  usings[#usings + 1] = f
+  imports[#imports + 1] = f
 end
 
 local namespace
-
 local function defIn(kind, name, f)
   local namespaceName, isClass = namespace[1], namespace[2]
   if #namespaceName > 0 then
@@ -1353,7 +1403,7 @@ local function defIn(kind, name, f)
   end
   assert(modules[name] == nil, name)
   namespace[1], namespace[2] = name, kind == "C" or kind == "S"
-  local t = f(namespace)
+  local t = f(assembly)
   namespace[1], namespace[2] = namespaceName, isClass
   modules[isClass and name:gsub("+", ".") or name] = function()
     return def(name, kind, t)
@@ -1363,6 +1413,7 @@ end
 namespace = {
   "",
   false,
+  __index = false,
   class = function(name, f) defIn("C", name, f) end,
   struct = function(name, f) defIn("S", name, f) end,
   interface = function(name, f) defIn("I", name, f) end,
@@ -1375,42 +1426,69 @@ namespace = {
     namespace[1] = namespaceName
   end
 }
+namespace.__index = namespace
 
 function System.namespace(name, f)
+  if not assembly then assembly = setmetatable({}, namespace) end
   namespace[1] = name
   f(namespace)
   namespace[1], namespace[2] = "", false
 end
 
-function System.init(namelist, conf)
-  metadatas = {}
-
-  local count = #classes + 1
-  for i = 1, #namelist do
-    local name = namelist[i]
-    local cls = assert(modules[name], name)()
-    classes[count] = cls
-    count = count + 1
-  end
-  for i = 1, #usings do
-    usings[i](global)
-  end
-  for i = 1, #metadatas do
-    metadatas[i](global)
-  end
-  if conf ~= nil then
-    local main = conf.Main
-    if main then
-      assert(not System.entryPoint)
-      System.entryPoint = main
+function System.init(t)
+  local path, files = t.path, t.files
+  if files then
+    path = (path and #path > 0) and (path .. '.') or ""
+    for i = 1, #files do
+      require(path .. files[i])
     end
   end
 
-  modules = {}
-  usings = {}
-  metadatas = nil
+  metadatas = {}
+  local types = t.types
+  if types then
+    local classes = {}
+    for i = 1, #types do
+      local name = types[i]
+      local cls = assert(modules[name], name)()
+      classes[i] = cls
+    end
+    assembly.classes = classes
+  end
+
+  for i = 1, #imports do
+    imports[i](global)
+  end
+
+  for i = 1, #metadatas do
+    metadatas[i](global)
+  end
+
+  local main = t.Main
+  if main then
+    assembly.entryPoint = main
+    System.entryAssembly = assembly
+  end
+
+  local attributes = t.assembly
+  if attributes then
+    if type(attributes) == "function" then
+      attributes = attributes(global)
+    end
+    for k, v in pairs(attributes) do
+      assembly[k] = v
+    end
+  end
+
+  local current = assembly
+  modules, imports, assembly, metadatas = {}, {}, nil, nil
+  return current
 end
 
+System.config = rawget(global, "CSharpLuaSystemConfig") or {}
+
 return function (config)
-  System.config = config or {}
+  if config then
+    System.config = config 
+  end
 end

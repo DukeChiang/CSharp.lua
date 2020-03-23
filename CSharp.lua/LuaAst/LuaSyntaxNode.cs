@@ -61,6 +61,7 @@ namespace CSharpLua.LuaAst {
       public const string BitAnd = "&";
       public const string BitOr = "|";
       public const string BitXor = "~";
+      public const string BitNot = "~";
       public const string ShiftLeft = "<<";
       public const string ShiftRight = ">>";
       public const string ShortComment = "--";
@@ -76,6 +77,7 @@ namespace CSharpLua.LuaAst {
       public const string Set = "set";
       public const string Add = "add";
       public const string Remove = "remove";
+      public const string Index = "index";
       public const string Label = "::";
       public const string Concatenation = "..";
     }
@@ -146,7 +148,7 @@ namespace CSharpLua.LuaAst {
       "__eq", "__lt", "__le", "__index", "__newindex", "__call", "__gc",
 
       // adapter special methods 
-      "__name__", "__ctor__", "__inherits__", "__metadata__", "__clone__",
+      "__name__", "__ctor__", "__metadata__", "__clone__",
     };
 
     public static bool IsReservedWord(string identifier) {

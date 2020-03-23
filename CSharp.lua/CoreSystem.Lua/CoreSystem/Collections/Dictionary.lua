@@ -121,19 +121,20 @@ local KeyValuePair = {
   end
 }
 
-KeyValuePairFn = System.defStc("System.KeyValuePair", function(TKey, TValue)
+KeyValuePairFn = System.defStc("System.Collections.Generic.KeyValuePair", function(TKey, TValue)
   local cls = {
     __genericTKey__ = TKey,
     __genericTValue__ = TValue,
   }
   return cls
 end, KeyValuePair)
+System.KeyValuePair = KeyValuePairFn
 
 local function isKeyValuePair(t)
   return getmetatable(getmetatable(t)) == KeyValuePair
 end
 
-local DictionaryEnumerator = define("System.DictionaryEnumerator", {
+local DictionaryEnumerator = define("System.Collections.Generic.DictionaryEnumerator", {
   getCurrent = System.getCurrent, 
   Dispose = System.emptyFn,
   MoveNext = function (this)
@@ -194,9 +195,9 @@ local function dictionaryEnumerator(t, kind)
   return setmetatable(en, DictionaryEnumerator)
 end
 
-local DictionaryCollection = define("System.DictionaryCollection", function (T)
+local DictionaryCollection = define("System.Collections.Generic.DictionaryCollection", function (T)
     return {
-      __inherits__ = { System.ICollection_1(T), System.IReadOnlyCollection_1(T), System.ICollection },
+      base = { System.ICollection_1(T), System.IReadOnlyCollection_1(T), System.ICollection },
       __genericT__ = T
     }
   end, {
@@ -369,6 +370,7 @@ local Dictionary = {
     if value ~= null then
       return value
     end
+    return nil
   end,
   set = function (this, key, value)
     if key == nil then throw(ArgumentNullException("key")) end
@@ -396,12 +398,21 @@ function System.dictionaryFromTable(t, TKey, TValue)
   return setmetatable(t, Dictionary(TKey, TValue))
 end
 
-define("System.Dictionary", function(TKey, TValue) 
+function System.isDictLike(t)
+  return type(t) == "table" and t.GetEnumerator == dictionaryEnumerator
+end
+
+local DictionaryFn = define("System.Collections.Generic.Dictionary", function(TKey, TValue) 
   return { 
-    __inherits__ = { System.IDictionary_2(TKey, TValue), System.IDictionary, System.IReadOnlyDictionary_2(TKey, TValue) },
+    base = { System.IDictionary_2(TKey, TValue), System.IDictionary, System.IReadOnlyDictionary_2(TKey, TValue) },
     __genericT__ = KeyValuePairFn(TKey, TValue),
     __genericTKey__ = TKey,
     __genericTValue__ = TValue,
     __len = getCount
   }
 end, Dictionary)
+
+System.Dictionary = DictionaryFn
+
+local Object = System.Object
+System.Hashtable = DictionaryFn(Object, Object)

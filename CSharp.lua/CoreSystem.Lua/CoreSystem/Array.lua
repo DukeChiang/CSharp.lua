@@ -122,7 +122,7 @@ local function each(t)
 end
 
 function System.isArrayLike(t)
-  return t.GetEnumerator == arrayEnumerator
+  return type(t) == "table" and t.GetEnumerator == arrayEnumerator
 end
 
 function System.isEnumerableLike(t)
@@ -337,11 +337,15 @@ end
 local function getComp(t, comparer)
   local compare
   if comparer then
-    local Compare = comparer.Compare
-    if Compare then
-      compare = function (x, y) return Compare(comparer, x, y) end
-    else
+    if type(comparer) == "function" then
       compare = comparer
+    else
+      local Compare = comparer.Compare
+      if Compare then
+        compare = function (x, y) return Compare(comparer, x, y) end
+      else
+        compare = comparer
+      end
     end
   else
     comparer = Comparer_1(t.__genericT__).getDefault()
@@ -364,7 +368,7 @@ end
 
 local ArrayEnumerator = define("System.ArrayEnumerator", function (T)
   return {
-    __inherits__ = { IEnumerator_1(T) }
+    base = { IEnumerator_1(T) }
   }
 end, {
   getCurrent = System.getCurrent, 
@@ -401,7 +405,7 @@ end
 
 local ArrayReverseEnumerator = define("System.ArrayReverseEnumerator", function (T)
   return {
-    __inherits__ = { IEnumerator_1(T) }
+    base = { IEnumerator_1(T) }
   }
 end, {
   getCurrent = System.getCurrent, 
@@ -490,6 +494,7 @@ Array = {
     if v ~= null then
       return v
     end
+    return nil
   end,
   insert = function (t, index, v)
     if index < 0 or index > #t then
@@ -532,6 +537,7 @@ Array = {
     if v ~= null then
       return v
     end
+    return nil
   end,
   popFirst = function (t)
     if #t == 0 then throw(InvalidOperationException()) end
@@ -541,6 +547,7 @@ Array = {
     if v ~= null then
       return v
     end
+    return nil
   end,
   popLast = function (t)
     local n = #t
@@ -550,6 +557,7 @@ Array = {
     if v ~= null then
       return v
     end
+    return nil
   end,
   removeRange = removeRange,
   remove = function (t, v)
@@ -1034,34 +1042,39 @@ end
 
 System.defArray("System.Array", function(T) 
   return { 
-    __inherits__ = { System.ICloneable, System.IList_1(T), System.IReadOnlyList_1(T), System.IList }, 
+    base = { System.ICloneable, System.IList_1(T), System.IReadOnlyList_1(T), System.IList }, 
     __genericT__ = T
   }
 end, Array, MultiArray)
 
-local yieldCoroutinePool = {}
-local function yieldCoroutineCreate(f)
-  local co = tremove(yieldCoroutinePool)
-  if co == nil then
-    co = ccreate(function (...)
+local cpool = {}
+local function createCoroutine(f)
+  local c = tremove(cpool)
+  if c == nil then
+    c = ccreate(function (...)
       f(...)
       while true do
         f = nil
-        yieldCoroutinePool[#yieldCoroutinePool + 1] = co
-        f = cyield(yieldCoroutinePool)
+        cpool[#cpool + 1] = c
+        f = cyield(cpool)
         f(cyield())
       end
     end)
   else
-    cresume(co, f)
+    cresume(c, f)
   end
-  return co
+  return c
 end
+
+System.ccreate = createCoroutine
+System.cpool = cpool
+System.cresume = cresume
+System.yield = cyield
 
 local YieldEnumerable
 YieldEnumerable = define("System.YieldEnumerable", function (T)
   return {
-    __inherits__ = { System.IEnumerable_1(T), System.IEnumerator_1(T), System.IDisposable },
+    base = { System.IEnumerable_1(T), System.IEnumerator_1(T), System.IDisposable },
     __genericT__ = T
   }
 end, {
@@ -1071,25 +1084,25 @@ end, {
     return setmetatable({ f = this.f, args = this.args }, YieldEnumerable(this.__genericT__))
   end,
   MoveNext = function (this)
-    local co = this.co
-    if co == false then
+    local c = this.c
+    if c == false then
       return false
     end
   
     local ok, v
-    if co == nil then
-      co = yieldCoroutineCreate(this.f)
-      this.co = co
+    if c == nil then
+      c = createCoroutine(this.f)
+      this.c = c
       local args = this.args
-      ok, v = cresume(co, unpack(args, 1, args.n))
+      ok, v = cresume(c, unpack(args, 1, args.n))
       this.args = nil
     else
-      ok, v = cresume(co)
+      ok, v = cresume(c)
     end
   
     if ok then
-      if v == yieldCoroutinePool then
-        this.co = false
+      if v == cpool then
+        this.c = false
         this.current = nil
         return false
       else
@@ -1102,15 +1115,12 @@ end, {
   end
 })
 
-function System.yieldIEnumerator(f, T, ...)
+local function yieldIEnumerable(f, T, ...)
   return setmetatable({ f = f, args = pack(...) }, YieldEnumerable(T))
 end
 
-function System.yieldIEnumerable(f, T, ...)
-  return setmetatable({ f = f, args = pack(...) }, YieldEnumerable(T))
-end
-
-System.yieldReturn = cyield
+System.yieldIEnumerable = yieldIEnumerable
+System.yieldIEnumerator = yieldIEnumerable
 
 local ReadOnlyCollection = {
   __ctor__ = function (this, list)
@@ -1142,7 +1152,7 @@ local ReadOnlyCollection = {
 
 define("System.ReadOnlyCollection", function (T)
   return { 
-    __inherits__ = { System.IList_1(T), System.IList, System.IReadOnlyList_1(T) }, 
+    base = { System.IList_1(T), System.IList, System.IReadOnlyList_1(T) }, 
     __genericT__ = T
   }
 end, ReadOnlyCollection)

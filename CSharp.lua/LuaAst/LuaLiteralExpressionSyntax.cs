@@ -83,14 +83,31 @@ namespace CSharpLua.LuaAst {
       char equals = Tokens.Equals[0];
       int count = 0;
       while (true) {
-        string closeToken = CloseBracket + new string(equals, count) + CloseBracket;
-        if (!value.Contains(closeToken)) {
-          break;
+        string equalsToken = new string(equals, count);
+        if (value.StartsWith(equalsToken + OpenBracket)) {
+          ++count;
+          continue;
         }
-        ++count;
+
+        if (value.EndsWith(equalsToken + CloseBracket)) {
+          ++count;
+          continue;
+        }
+
+        if (value.Contains(OpenBracket + equalsToken + OpenBracket)) {
+          ++count;
+          continue;
+        }
+
+        if (value.Contains(CloseBracket + equalsToken + CloseBracket)) {
+          ++count;
+          continue;
+        }
+
+        break;
       }
       if (checkNewLine) {
-        if (value[0] == '\n') {
+        if (value.Length > 0 && value[0] == '\n') {
           value = '\n' + value;
         }
       }
@@ -156,7 +173,7 @@ namespace CSharpLua.LuaAst {
   }
 
   public sealed class LuaFloatLiteralExpressionSyntax : LuaNumberLiteralExpressionSyntax {
-    private float number_;
+    private readonly float number_;
 
     public LuaFloatLiteralExpressionSyntax(float number) {
       number_ = number;
@@ -170,7 +187,7 @@ namespace CSharpLua.LuaAst {
 
     public override string Text {
       get {
-        return number_.ToString("r", CultureInfo.InvariantCulture);
+        return number_.ToString("G9", CultureInfo.InvariantCulture);
       }
     }
   }
@@ -184,7 +201,7 @@ namespace CSharpLua.LuaAst {
 
     public override string Text {
       get {
-        return Number.ToString("r", CultureInfo.InvariantCulture);
+        return Number.ToString("G17", CultureInfo.InvariantCulture);
       }
     }
   }

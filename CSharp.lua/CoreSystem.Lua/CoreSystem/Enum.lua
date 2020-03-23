@@ -47,21 +47,22 @@ local function hasFlag(this, flag)
   return band(this, flag) ~= 0
 end
 
-Number.ToEnumString = toString
+Number.EnumToString = toString
 Number.HasFlag = hasFlag
-System.ToEnumString = toString
+System.EnumToString = toString
+System.EnumHasFlag = hasFlag
 
 local function tryParseEnum(enumType, value, ignoreCase)
   if enumType == nil then throw(ArgumentNullException("enumType")) end
-  if not enumType:getIsEnum() then throw(ArgumentException("Arg_MustBeEnum")) end
+  local cls = enumType[1] or enumType
+  if cls.class ~= "E" then throw(ArgumentException("Arg_MustBeEnum")) end
   if value == nil then
     return
   end
   if ignoreCase then
     value = value:lower()
   end
-
-  local cls, i, j, s, r = enumType[1], 1
+  local i, j, s, r = 1
   while true do
     i, j, s = value:find("%s*(%a+)%s*", i)
     if not i then
@@ -94,7 +95,6 @@ System.define("System.Enum", {
   EqualsObj = Int.EqualsObj,
   default = Int.default,
   ToString = toString,
-  ToEnumString = toString,
   HasFlag = hasFlag,
   GetName = function (enumType, value)
     if enumType == nil then throw(ArgumentNullException("enumType")) end
@@ -157,8 +157,8 @@ System.define("System.Enum", {
     end
     return result
   end,
-  TryParse = function (TEnum, value, ignoreCase)
-    local result = tryParseEnum(System.typeof(TEnum), value, ignoreCase)
+  TryParse = function (type, value, ignoreCase)
+    local result = tryParseEnum(type, value, ignoreCase)
     if result == nil then
       return false, 0
     end

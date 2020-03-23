@@ -22,6 +22,8 @@ local compareObj = System.compareObj
 local ArgumentException = System.ArgumentException
 local ArgumentNullException = System.ArgumentNullException
 
+local type = type
+
 local EqualityComparer
 EqualityComparer = define("System.EqualityComparer", function (T)
   local equals
@@ -37,10 +39,16 @@ EqualityComparer = define("System.EqualityComparer", function (T)
   else
     equals = equalsObj
   end
+  local function getHashCode(x)
+    if type(x) == "table" then
+      return x:GetHashCode()
+    end
+    return x
+  end
   local defaultComparer
   return {
     __genericT__ = T,
-    __inherits__ = { System.IEqualityComparer_1(T), System.IEqualityComparer }, 
+    base = { System.IEqualityComparer_1(T), System.IEqualityComparer }, 
     getDefault = function ()
       local comparer = defaultComparer 
       if comparer == nil then
@@ -59,11 +67,11 @@ EqualityComparer = define("System.EqualityComparer", function (T)
     end,
     GetHashCodeOf = function (this, obj)
       if obj == nil then return 0 end
-      return obj:GetHashCode()
+      return getHashCode(obj)
     end,
     GetHashCodeObjOf = function (this, obj)
       if obj == nil then return 0 end
-      if System.is(obj, T) then return obj:GetHashCode() end
+      if System.is(obj, T) then return getHashCode(obj) end
       throw(ArgumentException("Type of argument is not compatible with the generic comparer."))
       return false
     end,
@@ -85,7 +93,7 @@ end
 define("System.Comparer", (function ()
   local Comparer
   Comparer = {
-    __inherits__ = { System.IComparer },
+    base = { System.IComparer },
     static = function (this)
       local default = Comparer()
       this.Default = default
@@ -100,7 +108,7 @@ local Comparer, ComparisonComparer
 
 ComparisonComparer = define("System.ComparisonComparer", function (T)
   return {
-    __inherits__ = { Comparer(T) },
+    base = { Comparer(T) },
     __ctor__ = function (this, comparison)
       this.comparison = comparison
     end,
@@ -114,6 +122,11 @@ Comparer = define("System.Comparer_1", function (T)
   local Compare
   local compareTo = T.CompareTo
   if compareTo then
+    if T.class ~= 'S' then
+      compareTo = function (x, y)
+        return x:CompareTo(y)
+      end
+    end
     Compare = function (this, x, y)
       if x ~= nil then
         if y ~= nil then 
@@ -145,7 +158,7 @@ Comparer = define("System.Comparer_1", function (T)
 
   return {
     __genericT__ = T,
-    __inherits__ = { System.IComparer_1(T), System.IComparer }, 
+    base = { System.IComparer_1(T), System.IComparer }, 
     getDefault = getDefault,
     getDefaultInvariant = getDefault,
     Compare = Compare,

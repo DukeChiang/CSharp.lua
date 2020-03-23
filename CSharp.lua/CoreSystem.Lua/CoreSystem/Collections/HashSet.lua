@@ -306,9 +306,9 @@ function System.hashSetFromTable(t, T)
   return setmetatable(t, HashSet(T))
 end
 
-System.define("System.HashSet", function(T) 
+System.HashSet = System.define("System.Collections.Generic.HashSet", function(T) 
   return { 
-    __inherits__ = { System.ICollection_1(T), System.ISet_1(T) }, 
+    base = { System.ICollection_1(T), System.ISet_1(T) }, 
     __genericT__ = T,
     __genericTKey__ = T,
     __len = HashSet.getCount

@@ -27,6 +27,8 @@ namespace CSharpLua.LuaAst {
       }
     }
 
+    public static readonly LuaExpressionSyntax EmptyExpression = new EmptyLuaExpressionSyntax();
+
     public static implicit operator LuaExpressionSyntax(string valueText) {
       LuaIdentifierNameSyntax identifierName = valueText;
       return identifierName;
@@ -36,15 +38,57 @@ namespace CSharpLua.LuaAst {
       LuaNumberLiteralExpressionSyntax numberLiteral = number;
       return numberLiteral;
     }
+    
+    public LuaBinaryExpressionSyntax Plus(LuaExpressionSyntax right) {
+      return Binary(Tokens.Plus, right);
+    }
 
-    public static readonly LuaExpressionSyntax EmptyExpression = new EmptyLuaExpressionSyntax();
+    public LuaBinaryExpressionSyntax Sub(LuaExpressionSyntax right) {
+      return Binary(Tokens.Sub, right);
+    }
 
     public LuaBinaryExpressionSyntax And(LuaExpressionSyntax right) {
-      return new LuaBinaryExpressionSyntax(this, Tokens.And, right);
+      return Binary(Tokens.And, right);
     }
 
     public LuaBinaryExpressionSyntax Or(LuaExpressionSyntax right) {
-      return new LuaBinaryExpressionSyntax(this, Tokens.Or, right);
+      return Binary(Tokens.Or, right);
+    }
+
+    public LuaBinaryExpressionSyntax EqualsEquals(LuaExpressionSyntax right) {
+      return Binary(Tokens.EqualsEquals, right);
+    }
+
+    public LuaBinaryExpressionSyntax NotEquals(LuaExpressionSyntax right) {
+      return Binary(Tokens.NotEquals, right);
+    }
+
+    public LuaBinaryExpressionSyntax Binary(string operatorToken, LuaExpressionSyntax right) {
+      return new LuaBinaryExpressionSyntax(this, operatorToken, right);
+    }
+
+    public LuaMemberAccessExpressionSyntax MemberAccess(LuaExpressionSyntax name, bool isObjectColon = false) {
+      return new LuaMemberAccessExpressionSyntax(this, name, isObjectColon);
+    }
+
+    public LuaAssignmentExpressionSyntax Assignment(LuaExpressionSyntax right) {
+      return new LuaAssignmentExpressionSyntax(this, right);
+    }
+
+    public LuaParenthesizedExpressionSyntax Parenthesized() {
+      return new LuaParenthesizedExpressionSyntax(this);
+    }
+
+    public LuaInvocationExpressionSyntax Invocation() {
+      return new LuaInvocationExpressionSyntax(this);
+    }
+
+    public LuaInvocationExpressionSyntax Invocation(params LuaExpressionSyntax[] arguments) {
+      return new LuaInvocationExpressionSyntax(this, arguments);
+    }
+
+    public LuaInvocationExpressionSyntax Invocation(IEnumerable<LuaExpressionSyntax> arguments) {
+      return new LuaInvocationExpressionSyntax(this, arguments);
     }
   }
 
@@ -127,6 +171,12 @@ namespace CSharpLua.LuaAst {
 
   public sealed class LuaCodeTemplateExpressionSyntax : LuaExpressionSyntax {
     public readonly LuaSyntaxList<LuaExpressionSyntax> Expressions = new LuaSyntaxList<LuaExpressionSyntax>();
+
+    public LuaCodeTemplateExpressionSyntax() { }
+
+    public LuaCodeTemplateExpressionSyntax(params LuaExpressionSyntax[] expressions) {
+      Expressions.AddRange(expressions);
+    }
 
     internal override void Render(LuaRenderer renderer) {
       renderer.Render(this);

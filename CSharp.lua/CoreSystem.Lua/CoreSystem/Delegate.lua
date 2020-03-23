@@ -17,6 +17,7 @@ limitations under the License.
 local System = System
 local throw = System.throw
 local Object = System.Object
+local debugsetmetatable = System.debugsetmetatable
 local ArgumentNullException = System.ArgumentNullException
 
 local setmetatable = setmetatable
@@ -103,19 +104,19 @@ local function removeImpl(fn1, fn2)
       end
     end
   elseif type(fn1) == "table" then
-      local count1, count2 = #fn1, # fn2
-      local diff = count1 - count2
-      for i = diff + 1, 1, -1 do
-        if equalsMulticast(fn1, fn2, i - 1, count2) then
-          if diff == 0 then 
-            return nil
-          elseif diff == 1 then 
-            return fn1[i ~= 1 and 1 or count1] 
-          else
-            return delete(fn1, count1, i, count2)
-          end
+    local count1, count2 = #fn1, # fn2
+    local diff = count1 - count2
+    for i = diff + 1, 1, -1 do
+      if equalsMulticast(fn1, fn2, i - 1, count2) then
+        if diff == 0 then 
+          return nil
+        elseif diff == 1 then 
+          return fn1[i ~= 1 and 1 or count1] 
+        else
+          return delete(fn1, count1, i, count2)
         end
       end
+    end
   end
   return fn1
 end
@@ -177,7 +178,32 @@ Delegate = System.define("System.Delegate", {
 
 local delegateMetaTable = setmetatable({ __index = Object, __call = makeGenericTypes }, Object)
 setmetatable(Delegate, delegateMetaTable)
-debug.setmetatable(System.emptyFn, Delegate)
+if debugsetmetatable then
+  debugsetmetatable(System.emptyFn, Delegate)
+
+  function System.event(name)
+    local function a(this, v)
+      this[name] = this[name] + v
+    end
+    local function r(this, v)
+      this[name] = this[name] - v
+    end
+    return a, r
+  end
+else
+  System.DelegateCombine = combine
+  System.DelegateRemove = remove
+
+  function System.event(name)
+    local function a(this, v)
+      this[name] = combine(this[name], v)
+    end
+    local function r(this, v)
+      this[name] = remove(this[name], v)
+    end
+    return a, r
+  end
+end
 
 multicast = setmetatable({
   __index = Delegate,
@@ -193,7 +219,7 @@ multicast = setmetatable({
   __eq = function (fn1, fn2)
     local len1, len2 = #fn1, #fn2
     if len1 ~= len2 then
-      return false         
+      return false
     end
     for i = 1, len1 do
       if fn1[i] ~= fn2[i] then
@@ -308,3 +334,6 @@ end
 function System.bind0_2(f)
   return bind(f, create0_2) 
 end
+
+local EventArgs = System.define("System.EventArgs")
+EventArgs.Empty = setmetatable({}, EventArgs)

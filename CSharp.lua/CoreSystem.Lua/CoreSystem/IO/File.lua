@@ -14,18 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 --]]
 
+local io = io
+if io then
+
 local System = System
 local define = System.define
 local throw = System.throw
 local each = System.each
 
-local io = io
 local open = io.open
 local remove = os.remove
 
 local IOException = define("System.IO.IOException", {
   __tostring = System.Exception.ToString,
-  __inherits__ = { System.Exception },
+  base = { System.Exception },
   __ctor__ = function(this, message, innerException) 
     System.Exception.__ctor__(this, message or "I/O error occurred.", innerException)
   end,
@@ -97,3 +99,5 @@ define("System.IO.File", {
     end
   end
 })
+
+end

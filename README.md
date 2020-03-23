@@ -13,7 +13,7 @@ CSharp.lua is a C# to Lua compiler. Write C# then run on lua VM.
 
 * Self-Compiling, run "./test/self-compiling/self.bat".
 
-* Used by dotnet Standard 2.0, Ability to use across platforms.
+* Used by dotnet Standard 2.1, Ability to use across platforms.
 
 ## Sample
 C# code
@@ -54,8 +54,8 @@ https://yanghuan.github.io/external/bridgelua-editor/index.html
 D:\>dotnet CSharp.Lua.Launcher.dll -h
 Usage: CSharp.lua [-s srcfolder] [-d dstfolder]
 Arguments
--s              : source directory, all *.cs files whill be compiled
--d              : destination  directory, will put the out lua files
+-s              : can be a directory where all cs files will be compiled, or a list of files, using ';' or ',' to separate
+-d              : destination directory, will put the out lua files
 
 Options
 -h              : show the help message and exit
@@ -67,10 +67,12 @@ Options
 
 -c              : support classic lua version(5.1), default support 5.3
 -a              : attributes need to export, use ';' to separate, if ""-a"" only, all attributes whill be exported
+-e              : enums need to export, use ';' to separate, if ""-e"" only, all enums will be exported
+-p              : do not use debug.setmetatable, in some Addon/Plugin environment debug object cannot be used
 -metadata       : export all metadata, use @CSharpLua.Metadata annotations for precise control
 -module         : the currently compiled assembly needs to be referenced, it's useful for multiple module compiled
 ```
-Make sure that the. NET core 2.0+ is installed.
+Make sure that the. NET core 3.0+ is installed.
 https://dotnet.microsoft.com/download
 
 ### Download

@@ -15,7 +15,9 @@ limitations under the License.
 */
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics.Contracts;
 using System.IO;
@@ -62,15 +64,32 @@ namespace CSharpLua {
     }
   }
 
-  public sealed class ArgumentNullException : System.ArgumentNullException {
-    public ArgumentNullException(string paramName) : base(paramName) {
-      Contract.Assert(false);
-    }
+  public sealed class ConcurrentList<T> : ConcurrentBag<T> {
   }
 
-  public sealed class InvalidOperationException : System.InvalidOperationException {
-    public InvalidOperationException() {
-      Contract.Assert(false);
+  public sealed class ConcurrentHashSet<T> : IEnumerable<T> {
+    private ConcurrentDictionary<T, bool> dict_ = new ConcurrentDictionary<T, bool>();
+
+    public bool Add(T v) {
+      return dict_.TryAdd(v, true);
+    }
+
+    public bool Contains(T v) {
+      return dict_.ContainsKey(v);
+    }
+
+    public IEnumerator<T> GetEnumerator() {
+      return dict_.Keys.GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator() {
+      return GetEnumerator();
+    }
+
+    public void UnionWith(IEnumerable<T> collection) {
+      foreach (var v in collection) {
+        Add(v);
+      }
     }
   }
 
@@ -116,6 +135,14 @@ namespace CSharpLua {
         dict.Add(key, set);
       }
       return set.Add(value);
+    }
+
+    public static T GetOrAdd<K, T>(this IDictionary<K, T> dict, K key, Func<K, T> valueFunc) {
+      if (!dict.TryGetValue(key, out var v)) {
+        v = valueFunc(key);
+        dict.Add(key, v);
+      }
+      return v;
     }
 
     public static bool Contains<K, V>(this Dictionary<K, HashSet<V>> dict, K key, V value) {
@@ -164,7 +191,7 @@ namespace CSharpLua {
       return new T[] { t };
     }
 
-    public static Dictionary<string, string[]> GetCommondLines(string[] args) {
+    public static Dictionary<string, string[]> GetCommandLines(string[] args) {
       Dictionary<string, string[]> cmds = new Dictionary<string, string[]>();
 
       string key = "";
@@ -304,6 +331,14 @@ namespace CSharpLua {
       return token.IsKind(SyntaxKind.OutKeyword) || token.IsKind(SyntaxKind.RefKeyword);
     }
 
+    public static bool EQ(this ISymbol a, ISymbol b) {
+      return SymbolEqualityComparer.Default.Equals(a, b);
+    }
+
+    public static bool IsBasicType(this ITypeSymbol type) {
+      return type.SpecialType >= SpecialType.System_Enum && type.SpecialType <= SpecialType.System_Double;
+    }
+
     public static bool IsStringType(this ITypeSymbol type) {
       return type.SpecialType == SpecialType.System_String;
     }
@@ -338,8 +373,8 @@ namespace CSharpLua {
     }
 
 
-    public static bool IsBoolType(this ITypeSymbol type) {
-      if (type.IsNullableType()) {
+    public static bool IsBoolType(this ITypeSymbol type, bool withNullable = true) {
+      if (withNullable && type.IsNullableType()) {
         type = ((INamedTypeSymbol)type).TypeArguments.First();
       }
       return type.SpecialType == SpecialType.System_Boolean;
@@ -358,18 +393,22 @@ namespace CSharpLua {
       return type.IsNullableType() ? ((INamedTypeSymbol)type).TypeArguments.First() : null;
     }
 
-    public static bool IsEnumType(this ITypeSymbol type ,out ITypeSymbol symbol) {
+    public static bool IsEnumType(this ITypeSymbol type, out ITypeSymbol symbol, out bool isNullable) {
       if (type.TypeKind == TypeKind.Enum) {
         symbol = type;
+        isNullable = false;
         return true;
       } else {
         var nullableElemetType = type.NullableElemetType();
         if (nullableElemetType != null && nullableElemetType.TypeKind == TypeKind.Enum) {
           symbol = nullableElemetType;
+          isNullable = true;
           return true;
         }
       }
+
       symbol = null;
+      isNullable = false;
       return false;
     }
 
@@ -380,6 +419,33 @@ namespace CSharpLua {
 
     public static bool IsSystemTuple(this ITypeSymbol type) {
       return type.Name == "Tuple" && type.ContainingNamespace.Name == "System";
+    }
+
+    public static bool IsSystemIndex(this ITypeSymbol type) {
+      return type.Name == "Index" && type.ContainingNamespace.Name == "System";
+    }
+
+    private static bool IsSystemIComparableT(this INamedTypeSymbol type) {
+      return type.Name == "IComparable"   && type.ContainingNamespace.Name == "System"  && type.IsGenericType;
+    }
+
+    private static bool IsSystemIEquatableT(this INamedTypeSymbol type) {
+      return type.Name == "IEquatable" && type.ContainingNamespace.Name == "System"  && type.IsGenericType;
+    }
+
+    private static bool IsSystemIFormattable(this INamedTypeSymbol type) {
+      return type.Name == "IFormattable"  && type.ContainingNamespace.Name == "System";
+    }
+
+    public static bool IsBasicTypInterface(this INamedTypeSymbol type) {
+      return type.TypeKind == TypeKind.Interface && (type.IsSystemIComparableT() || type.IsSystemIEquatableT() || type.IsSystemIFormattable());
+    }
+
+    public static bool IsSystemTask(this ITypeSymbol symbol) {
+      return (symbol.Name == "Task" || symbol.Name == "ValueTask")
+        && symbol.ContainingNamespace.Name == "Tasks"
+        && symbol.ContainingNamespace.ContainingNamespace.Name == "Threading"
+        && symbol.ContainingNamespace.ContainingNamespace.ContainingNamespace.Name == "System";
     }
 
     public static bool IsInterfaceImplementation<T>(this T symbol) where T : ISymbol {
@@ -439,7 +505,7 @@ namespace CSharpLua {
         ISymbol overriddenSymbol = symbol.OverriddenSymbol();
         if (overriddenSymbol != null) {
           CheckOriginalDefinition(ref overriddenSymbol);
-          if (overriddenSymbol.Equals(superSymbol)) {
+          if (overriddenSymbol.EQ(superSymbol)) {
             return true;
           }
           symbol = overriddenSymbol;
@@ -450,16 +516,52 @@ namespace CSharpLua {
     }
 
     public static bool HasMetadataAttribute(this ISymbol symbol) {
-      var syntaxReference = symbol.DeclaringSyntaxReferences.FirstOrDefault();
-      if (syntaxReference != null) {
-        return syntaxReference.GetSyntax().HasCSharpLuaAttribute(LuaDocumentStatement.AttributeFlags.Metadata);
+      var node = symbol.GetDeclaringSyntaxNode();
+      if (node != null) {
+        return node.HasCSharpLuaAttribute(LuaDocumentStatement.AttributeFlags.Metadata);
       }
       return false;
     }
 
     public static bool HasCSharpLuaAttribute(this SyntaxNode node, LuaDocumentStatement.AttributeFlags attribute) {
+      return node.HasCSharpLuaAttribute(attribute, out _);
+    }
+
+    public static bool HasCSharpLuaAttribute(this SyntaxNode node, LuaDocumentStatement.AttributeFlags attribute, out string text) {
+      text = null;
       var documentTrivia = node.GetLeadingTrivia().FirstOrDefault(i => i.IsKind(SyntaxKind.SingleLineDocumentationCommentTrivia));
-      return documentTrivia != null && documentTrivia.ToString().Contains(LuaDocumentStatement.ToString(attribute));
+      if (documentTrivia != null) {
+        string document = documentTrivia.ToString();
+        if (document.Contains(LuaDocumentStatement.ToString(attribute))) {
+          text = document;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    public static string GetCodeTemplateFromAttribute(this ISymbol symbol) {
+      var node = symbol.GetDeclaringSyntaxNode();
+      if (node != null) {
+        if (symbol.Kind == SymbolKind.Field) {
+          node = node.Parent.Parent;
+        }
+        if (node.HasCSharpLuaAttribute(LuaAst.LuaDocumentStatement.AttributeFlags.Template, out string text)) {
+          return GetCodeTemplateFromAttributeText(text);
+        }
+      }
+      return null;
+    }
+
+    private static readonly Regex codeTemplateAttributeRegex_ = new Regex(@"@CSharpLua.Template\s*=\s*(.+)\s*", RegexOptions.Compiled);
+
+    private static string GetCodeTemplateFromAttributeText(string document) {
+      var matchs = codeTemplateAttributeRegex_.Matches(document);
+      if (matchs.Count > 0) {
+        string text = matchs[0].Groups[1].Value;
+        return text.Trim().Trim('"');
+      }
+      return null;
     }
 
     public static bool IsAssignment(this SyntaxKind kind) {
@@ -505,12 +607,12 @@ namespace CSharpLua {
       }
 
       ITypeSymbol p = child;
-      if (p == parent) {
+      if (p.EQ(parent)) {
         return false;
       }
 
       while (p != null) {
-        if (p == parent) {
+        if (p.EQ(parent)) {
           return true;
         }
         p = p.BaseType;
@@ -525,7 +627,7 @@ namespace CSharpLua {
       while (t != null) {
         var interfaces = implementType.AllInterfaces;
         foreach (var i in interfaces) {
-          if (i.Equals(interfaceType) || i.IsImplementInterface(interfaceType)) {
+          if (i.EQ(interfaceType) || i.IsImplementInterface(interfaceType)) {
             return true;
           }
         }
@@ -540,7 +642,7 @@ namespace CSharpLua {
 
     public static bool IsNumberTypeAssignableFrom(this ITypeSymbol left, ITypeSymbol right) {
       if (left.SpecialType.IsBaseNumberType() && right.SpecialType.IsBaseNumberType()) {
-        if (left == right) {
+        if (left.EQ(right)) {
           return true;
         }
 
@@ -580,7 +682,7 @@ namespace CSharpLua {
     }
 
     public static bool Is(this ITypeSymbol left, ITypeSymbol right) {
-      if (left.Equals(right)) {
+      if (left.EQ(right)) {
         return true;
       }
 
@@ -604,8 +706,10 @@ namespace CSharpLua {
 
     public static void CheckMethodDefinition(ref IMethodSymbol symbol) {
       if (symbol.IsExtensionMethod) {
-        if (symbol.ReducedFrom != null && symbol.ReducedFrom != symbol) {
+        if (symbol.ReducedFrom != null && !symbol.ReducedFrom.EQ(symbol)) {
           symbol = symbol.ReducedFrom;
+        } else {
+          CheckSymbolDefinition(ref symbol);
         }
       } else {
         CheckSymbolDefinition(ref symbol);
@@ -616,7 +720,7 @@ namespace CSharpLua {
       if (symbol.Kind == SymbolKind.Method) {
         IMethodSymbol methodSymbol = (IMethodSymbol)symbol;
         CheckMethodDefinition(ref methodSymbol);
-        if (methodSymbol != symbol) {
+        if (!methodSymbol.EQ(symbol)) {
           symbol = methodSymbol;
         }
       } else {
@@ -647,7 +751,7 @@ namespace CSharpLua {
       if (baseTypeSymbol.IsGenericType) {
         foreach (var baseTypeArgument in baseTypeSymbol.TypeArguments) {
           if (baseTypeSymbol.Kind != SymbolKind.TypeParameter) {
-            if (!baseTypeArgument.Equals(typeSymbol) && baseTypeArgument.Is(typeSymbol)) {
+            if (!baseTypeArgument.EQ(typeSymbol) && baseTypeArgument.Is(typeSymbol)) {
               return true;
             }
           }
@@ -666,6 +770,10 @@ namespace CSharpLua {
 
     public static bool IsGenericIEnumerableType(this ITypeSymbol typeSymbol) {
       return typeSymbol.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T;
+    }
+
+    public static bool IsGenericIAsyncEnumerableType(this ITypeSymbol typeSymbol) {
+      return typeSymbol.Name == "IAsyncEnumerable" && typeSymbol.IsCollectionType();
     }
 
     public static bool IsCustomValueType(this ITypeSymbol typeSymbol) {
@@ -733,6 +841,11 @@ namespace CSharpLua {
 
     public static ITypeSymbol GetIEnumerableElementType(this ITypeSymbol symbol) {
       var interfaceType = symbol.IsGenericIEnumerableType() ? (INamedTypeSymbol)symbol : symbol.AllInterfaces.FirstOrDefault(i => i.IsGenericIEnumerableType());
+      return interfaceType?.TypeArguments.First();
+    }
+
+    public static ITypeSymbol GetIAsyncEnumerableElementType(this ITypeSymbol symbol) {
+      var interfaceType = symbol.IsGenericIAsyncEnumerableType() ? (INamedTypeSymbol)symbol : symbol.AllInterfaces.FirstOrDefault(i => i.IsGenericIAsyncEnumerableType());
       return interfaceType?.TypeArguments.First();
     }
 
@@ -873,16 +986,13 @@ namespace CSharpLua {
     }
 
     public static string GetNewIdentifierName(string name, int index) {
-      switch (index) {
-        case 0:
-          return name;
-        case 1:
-          return name + "_";
-        case 2:
-          return "_" + name;
-        default:
-          return name + (index - 2);
-      }
+      return index switch
+      {
+        0 => name,
+        1 => name + "_",
+        2 => "_" + name,
+        _ => name + (index - 2),
+      };
     }
 
     private static IEnumerable<INamespaceSymbol> InternalGetAllNamespaces(INamespaceSymbol symbol) {
@@ -899,7 +1009,7 @@ namespace CSharpLua {
       return InternalGetAllNamespaces(symbol).Reverse();
     }
 
-    public static bool IsCollectionType(this INamedTypeSymbol symbol) {
+    public static bool IsCollectionType(this ITypeSymbol symbol) {
       INamespaceSymbol containingNamespace = symbol.ContainingNamespace;
       while (!containingNamespace.IsGlobalNamespace) {
         if (containingNamespace.Name == "Collections" && containingNamespace.ContainingNamespace.Name == "System") {
@@ -934,7 +1044,7 @@ namespace CSharpLua {
           break;
         }
         case SymbolKind.TypeParameter: {
-          return matchType == null || symbol == matchType;
+          return matchType == null || symbol.EQ(matchType);
         }
         case SymbolKind.PointerType: {
           var pointType = (IPointerTypeSymbol)symbol;
@@ -993,7 +1103,7 @@ namespace CSharpLua {
     }
 
     public static bool IsContainsInternalSymbol(this INamedTypeSymbol type, ISymbol symbol) {
-      if (type.Equals(symbol.ContainingType)) {
+      if (type.EQ(symbol.ContainingType)) {
         return true;
       }
 
@@ -1015,6 +1125,14 @@ namespace CSharpLua {
 
     public static bool IsCompilerGeneratedAttribute(this INamedTypeSymbol symbol) {
       return symbol.Name == "CompilerGeneratedAttribute" && symbol.ContainingNamespace.IsRuntimeCompilerServices();
+    }
+
+    private static bool IsSystemReflection(this INamespaceSymbol symbol) {
+      return symbol.Name == "Reflection" && symbol.ContainingNamespace.Name == "System";
+    }
+
+    public static bool IsAssemblyAttribute(this INamedTypeSymbol symbol) {
+      return symbol.Name.StartsWith("Assembly") && symbol.ContainingNamespace.IsSystemReflection();
     }
 
     public static bool HasAggressiveInliningAttribute(this ISymbol symbol) {
@@ -1075,12 +1193,30 @@ namespace CSharpLua {
             int index = ctor.FindNotNullParameterIndex();
             if (index != -1) {
               notNullParameterIndex = index;
-              return symbol == ctor;
+              return symbol.EQ(ctor);
             }
           }
         }
       }
       return false;
+    }
+
+    public static bool IsEmptyPartialMethod(this IMethodSymbol symbol) {
+      if (symbol.ReturnsVoid && symbol.IsPrivate()) {
+        var p = symbol.GetType().GetProperty("DeclarationModifiers", BindingFlags.NonPublic | BindingFlags.Instance);
+        if (p != null) {
+          var declarationModifiers = p.GetValue(symbol);
+          if (declarationModifiers.ToString().Contains("Partial")) {
+            return symbol.PartialImplementationPart == null || symbol.PartialDefinitionPart != null;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    public static bool IsInterfaceDefaultMethod(this IMethodSymbol symbol) {
+      return symbol.ContainingType.TypeKind == TypeKind.Interface && !symbol.IsStatic && !symbol.IsAbstract;
     }
 
     public static string GetMetaDataAttributeFlags(this ISymbol symbol, PropertyMethodKind propertyMethodKind = 0) {
@@ -1116,7 +1252,7 @@ namespace CSharpLua {
           }
           break;
         }
-        case SymbolKind.Property: 
+        case SymbolKind.Property:
         case SymbolKind.Event: {
           if (propertyMethodKind > 0) {
             flags |= (int)propertyMethodKind << 8;
@@ -1128,8 +1264,7 @@ namespace CSharpLua {
     }
 
     public static SyntaxNode GetDeclaringSyntaxNode(this ISymbol symbol) {
-      var syntaxReference = symbol.DeclaringSyntaxReferences.FirstOrDefault();
-      return syntaxReference?.GetSyntax();
+      return symbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
     }
 
     public static bool IsNil(this LuaExpressionSyntax expression) {
@@ -1145,7 +1280,15 @@ namespace CSharpLua {
       }
     }
 
-    #region hard code for protobuf-net
+    public static T Accept<T>(this CSharpSyntaxNode node, LuaSyntaxNodeTransform transform) where T : LuaSyntaxNode {
+      return (T)node.Accept(transform);
+    }
+
+    public static LuaExpressionSyntax AcceptExpression(this CSharpSyntaxNode node, LuaSyntaxNodeTransform transform) {
+      return node.Accept<LuaExpressionSyntax>(transform);
+    }
+
+#region hard code for protobuf-net
 
     public static bool IsProtobufNetDeclaration(this INamedTypeSymbol type) {
       foreach (var attr in type.GetAttributes()) {
@@ -1185,6 +1328,6 @@ namespace CSharpLua {
       return false;
     }
 
-    #endregion
+#endregion
   }
 }
